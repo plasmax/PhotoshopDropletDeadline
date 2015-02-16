@@ -55,11 +55,7 @@ class PhotoshopDropletPlugin(DeadlinePlugin):
     
     def StartJob( self ):
         self.Pdp = PhotoshopDropletProcess( self )
-        # processName = Path.GetFileNameWithoutExtension( Pdp.executable )
-        # ProcessUtils.IsProcessRunning( processName )
-        # self.Plugin.LogWarning( "Found existing %s process" % processName )
-                # process = Process.GetProcessesByName( processName )[ 0 ]
-        self.processName = "test"
+        self.processName = Path.GetFileNameWithoutExtension( self.Pdp.executable )
     
     def returnError( self, state, message ):
         if state:
@@ -137,7 +133,7 @@ class PhotoshopDropletProcess (ManagedProcess):
         self.UseProcessTree = True
         self.StdoutHandling = True
         self.PopupHandling = True
-        self.SetUpdateTimeout( 2 )
+        self.SetUpdateTimeout( 10 )
         
         origineStatInfo = os.stat(self.RenderArgument())
         self.origineFileSize = origineStatInfo.st_size
