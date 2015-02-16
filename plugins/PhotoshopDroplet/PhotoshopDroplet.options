@@ -1,0 +1,26 @@
+[Executable]
+Type=string
+Label=Executable
+Category=Command
+Index=0
+Description=The command executable to run
+Required=false
+DisableIfBlank=true
+
+[Arguments]
+Type=string
+Label=Arguments
+Category=Command
+Index=1
+Description=The command arguments to use
+Required=false
+DisableIfBlank=true
+
+[StartupDirectory]
+Type=string
+Label=Startup Directory
+Category=Command
+Index=2
+Description=The directory to start the command line in (leave blank to use default)
+Required=false
+DisableIfBlank=true
