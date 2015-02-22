@@ -1,26 +1,52 @@
 [Executable]
 Type=string
-Label=Executable
+Label=Droplet Executable
 Category=Command
 Index=0
-Description=The command executable to run
-Required=false
-DisableIfBlank=true
+Description=The droplet executable to run
+Required=True
+DisableIfBlank=True
+
+[CopyOnLocal]
+Type=boolean
+Label=Copy the droplet executable on local slave
+Category=Command
+Index=1
+Description=Copy the droplet executable locally on render slaves
+Required=False
+Default=False
 
 [Arguments]
 Type=string
 Label=Arguments
 Category=Command
-Index=1
+Index=2
 Description=The command arguments to use
-Required=false
-DisableIfBlank=true
+Required=False
+DisableIfBlank=True
 
 [StartupDirectory]
 Type=string
 Label=Startup Directory
 Category=Command
-Index=2
+Index=3
 Description=The directory to start the command line in (leave blank to use default)
-Required=false
-DisableIfBlank=true
+Required=False
+DisableIfBlank=True
+
+[CheckFileSize]
+Type=boolean
+Label=Check the file size
+Description=Check the file size at the end of the render task
+Category=Photoshop render options
+Index=0
+Default=True
+Required=False
+
+[CloseOnEndRender]
+Type=boolean
+Label=Close Photoshop at the end
+Description=Close Photoshop when render is finished
+Index=1
+Default=False
+Required=False

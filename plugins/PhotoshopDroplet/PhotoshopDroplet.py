@@ -25,11 +25,14 @@ def CleanupDeadlinePlugin( deadlinePlugin ):
 ######################################################################
 ## This is the main DeadlinePlugin class for the CommandLine plugin.
 ######################################################################
-class PhotoshopDropletPlugin(DeadlinePlugin):
+class PhotoshopDropletPlugin( DeadlinePlugin ):
 
     # Photoshop Droplet Process (Pdp)
     Pdp = None
-    processName = None 
+    processName = None
+    CopyOnLocal = None
+    isCheckFileSize = None
+    CloseOnEndRender = None
     
     def __init__( self ):
         
@@ -56,6 +59,16 @@ class PhotoshopDropletPlugin(DeadlinePlugin):
     def StartJob( self ):
         self.Pdp = PhotoshopDropletProcess( self )
         self.processName = Path.GetFileNameWithoutExtension( self.Pdp.executable )
+
+        # Killing Photoshop if is already running
+        if ProcessUtils.IsProcessRunning( "Photoshop.exe" ):
+                self.returnError(False, "Photoshop is running on the slave - killing the process to allow renders.")
+                os.system("taskkill /t /im \"Photoshop*\" /f")
+                
+        # Plugin options
+        self.isCheckFileSize = self.GetBooleanPluginInfoEntryWithDefault( "CheckFileSize", True )
+        self.CopyOnLocal = self.GetBooleanPluginInfoEntryWithDefault( "CopyOnLocal", False )
+        self.CloseOnEndRender = self.GetBooleanPluginInfoEntryWithDefault( "CloseOnEndRender", True )
     
     def returnError( self, state, message ):
         if state:
@@ -72,22 +85,57 @@ class PhotoshopDropletPlugin(DeadlinePlugin):
         
         if os.path.isfile(renderFramePath):
             self.returnError(False, "Starting the process %s" % self.processName)
-            
+                        
             # Starting the process
-            self.RunManagedProcess(self.Pdp)
-            isProcessRunning = self.MonitoredManagedProcessIsRunning(self.processName)
-            if isProcessRunning:
-                self.LogStdout("The process %s is running" % self.processName)
-            else:
-                self.returnError(True, "The process %s is not running. The render is aborted !" % self.processName)
+            self.StartMonitoredManagedProcess( self.processName, self.Pdp )
+            while( self.MonitoredManagedProcessIsRunning( self.processName ) ):
+                self.isBlockingPopup()
+            
+            if self.isReadyToExit(self.GetMonitoredManagedProcessExitCode(self.processName)):
+                self.LogStdout("Checking the render file size with the original file...")
+                if self.isCheckFileSize:
+                    renderFileInfo = os.stat(renderFramePath)
+                    self.Pdp.renderFileSize = renderFileInfo.st_size
+            
+                    self.checkFileSize( self.Pdp.origineFileSize, self.Pdp.renderFileSize )
+
+                if self.CloseOnEndRender:
+                    if ProcessUtils.IsProcessRunning( "Photoshop.exe" ):
+                        self.ShutdownMonitoredManagedProcess( self.processName )
+                        # os.system("taskkill /t /im \"Photoshop*\" /f")
+                    else:
+                        self.returnError(False, "RenderTasks Photoshop droplet exited before finishing, \
+                        it may have been terminated by your Droplet script")
         else:
             self.returnError(True, "The frame %s doesn't exist. The render is aborted !" % renderFramePath)
-        # self.Pdp.LaunchExecutable(self.Pdp.executable, self.Pdp.arguments, self.Pdp.startupDir)
         
     def EndJob( self ):
         self.LogInfo("End Job called !")
-        # theExitCode = GetMonitoredManagedProcessExitCode(self.processName)
-        # ShutdownMonitoredManagedProcess( processName )
+        
+    def isBlockingPopup ( self ):
+        Popup = self.CheckForMonitoredManagedProcessPopups( self.processName )
+        if ( Popup != "" ):
+            self.returnError(True, "This popup was detected (%s). The render is aborted !" % Popup)
+            self.ShutdownMonitoredManagedProcess( self.processName )
+            self.LogStdout(str(self.MonitoredManagedProcessIsRunning( self.processName )))
+                
+    def isReadyToExit( self , exitCode ):
+        self.LogInfo("Checking the exit code...")
+        if exitCode == 0 or exitCode == 1 :
+            self.LogStdout("Good, the exit code is 1!")
+            return True
+        else:
+            self.FailRender("Error, check the exit code (%s)!" % str(exitCode))
+            return False
+    
+    def checkFileSize( self, origineFileSize, renderFileSize ):
+        if renderFileSize == origineFileSize:
+            self.returnError(True,"The render file size (%(renderSize)s) and the original file size (%(originalSize)s) are the same"
+            % {"renderSize": renderFileSize, "originalSize": origineFileSize})
+        else:
+            self.returnError(False,"The render file size (%(renderSize)s) is different of original file size (%(originalSize)s)" 
+            % {"renderSize": renderFileSize, "originalSize": origineFileSize}) 
+            return True
         
 ######################################################################
 ## This is the ManagedProcess class that is launched above.
@@ -103,12 +151,12 @@ class PhotoshopDropletProcess (ManagedProcess):
     ## Hook up the callbacks in the constructor.
     def __init__( self, plugin ):
         self.Plugin = plugin
+        self.exitSuccess = False
+        
         self.InitializeProcessCallback += self.InitializeProcess
         self.RenderExecutableCallback += self.RenderExecutable
         self.RenderArgumentCallback += self.RenderArgument
         self.StartupDirectoryCallback += self.StartupDirectory
-        self.TimeoutTasksCallback += self.Timeout
-        self.CheckExitCodeCallback += self.CheckExitCode
         
         self.executable = self.RenderExecutable()
         self.startupDir = self.StartupDirectory()
@@ -123,8 +171,6 @@ class PhotoshopDropletProcess (ManagedProcess):
         del self.RenderExecutableCallback
         del self.RenderArgumentCallback
         del self.StartupDirectoryCallback
-        del self.TimeoutTasksCallback
-        del self.CheckExitCodeCallback
 
     ## Called by Deadline to initialize the process.
     def InitializeProcess( self ):
@@ -133,8 +179,9 @@ class PhotoshopDropletProcess (ManagedProcess):
         self.UseProcessTree = True
         self.StdoutHandling = True
         self.PopupHandling = True
-        self.SetUpdateTimeout( 10 )
         
+        
+        # Get the original file size before render
         origineStatInfo = os.stat(self.RenderArgument())
         self.origineFileSize = origineStatInfo.st_size
         
@@ -167,30 +214,3 @@ class PhotoshopDropletProcess (ManagedProcess):
     
     def StartupDirectory( self ):
         return self.Plugin.GetPluginInfoEntryWithDefault( "StartupDirectory", "" ).strip()
-    
-    def Timeout( self ):
-        self.Plugin.LogStdout("Time out ! Checking if process %s is still running" % self.Plugin.processName)
-        isProcessRunning = self.Plugin.MonitoredManagedProcessIsRunning( self.Plugin.processName )
-        if isProcessRunning:
-            self.Plugin.returnError(True,"Task timeout ! The process %s is still running, I will kill it !" % self.Plugin.processName)
-            self.ShutdownMonitoredManagedProcess( self.Plugin.processName )
-        else:
-            self.Plugin.returnError(True,"Task timeout ! The process %s isn't running... Call Sherlock Holmes for investigations !" % self.Plugin.processName)
-        
-    
-    def CheckExitCode( self , exitCode ):
-        self.Plugin.LogInfo("Checking the exit code")
-        if exitCode == 0:
-            self.Plugin.ExitWithSuccess()
-        elif exitCode == 1:
-            self.Plugin.LogStdout("The error code is 1. Checking the new file size")
-            renderFileInfo = os.stat(self.RenderArgument())
-            self.renderFileSize = renderFileInfo.st_size
-            
-            if self.renderFileSize == self.origineFileSize:
-                self.Plugin.returnError(True,"The render file size (%(renderSize)s) and the original file size (%(originalSize)s) are the same" % {"renderSize": self.renderFileSize, "originalSize": self.origineFileSize})
-            else:
-                self.Plugin.returnError(False,"The render file size (%(renderSize)s) is different of original file size (%(originalSize)s)" % {"renderSize": self.renderFileSize, "originalSize": self.origineFileSize})
-                self.Plugin.ExitWithSuccess()
-        else:
-            self.Plugin.FailRender("Error, check the exit code : ")
