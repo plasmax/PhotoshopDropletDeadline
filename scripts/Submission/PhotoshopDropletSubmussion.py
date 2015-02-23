@@ -91,7 +91,7 @@ def __main__( *args ):
 
     scriptDialog.AddControlToGrid( "StartupLabel", "LabelControl", "Start Up Folder (optional)", 5, 0, "The directory that the command line will start up in.", False )
     scriptDialog.AddSelectionControlToGrid( "StartupBox", "FolderBrowserControl", "","", 5, 1, colSpan=3, browserLocation=defaultLocation)
-
+    
     scriptDialog.AddControlToGrid( "ArgsLabel", "LabelControl", "Arguments", 6, 0, "The command line arguments to be submitted." )
     scriptDialog.AddControlToGrid( "ArgsBox", "TextControl", "", 6, 1, colSpan=3 )  
 
@@ -102,6 +102,12 @@ def __main__( *args ):
 
     scriptDialog.AddControlToGrid("FramePaddingLabel","LabelControl", "Frame Tag Padding", 8, 0, "Controls the amount of frame padding for the Start Frame and End Frame tags.", False )
     scriptDialog.AddRangeControlToGrid( "FramePaddingBox", "RangeControl", 0, 0, 10, 0, 1, 8, 1 )
+    
+    scriptDialog.AddControlToGrid( "FramesLabel", "LabelControl", "Frame List", 9, 0, "The list of frames for the normal job.", False )
+    scriptDialog.AddControlToGrid( "FramesBox", "TextControl", "", 9, 1 )
+    
+    getFramesButton = scriptDialog.AddControlToGrid( "getFramesButton", "ButtonControl", "Get Frame List from arguments", 9, 2, colSpan=2 )
+    
     scriptDialog.EndGrid() 
 
     startFButton.ValueModified.connect(startFPressed)
@@ -116,7 +122,8 @@ def __main__( *args ):
     closeButton.ValueModified.connect(scriptDialog.closeEvent)
     scriptDialog.EndGrid()
     
-    settings = ("DepartmentBox","CategoryBox","PoolBox","SecondaryPoolBox","GroupBox","PriorityBox","IsBlacklistBox","MachineListBox","LimitGroupBox","ExecBox","StartupBox","ArgsBox","VersionBox","SubmitSceneBox")
+    settings = ("DepartmentBox","CategoryBox","PoolBox","SecondaryPoolBox","GroupBox","PriorityBox","IsBlacklistBox","MachineListBox",
+    "LimitGroupBox","ExecBox","StartupBox","FramesBox","ArgsBox","VersionBox","SubmitSceneBox")
     scriptDialog.LoadSettings( GetSettingsFilename(), settings )
     scriptDialog.EnabledStickySaving( settings, GetSettingsFilename() )
     
@@ -167,14 +174,13 @@ def GetSettingsFilename():
 def SubmitButtonPressed(*args):
     global scriptDialog
     
-    # Check if scene file exists.
-    sceneFile = scriptDialog.GetValue( "SceneBox" )
-    #scriptDialog.ShowMessageBox(sceneFile, "")
-    if( not File.Exists( sceneFile ) ):
-        scriptDialog.ShowMessageBox( "The sceen {0} does not exist".format(sceneFile), "Error" )
+    # Check if executable file exists.
+    execFile = scriptDialog.GetValue( "ExecBox" )
+    if( not File.Exists( execFile ) ):
+        scriptDialog.ShowMessageBox( "The executable {0} does not exist".format(execFile), "Error" )
         return
-    elif (PathUtils.IsPathLocal(sceneFile)):
-        result = scriptDialog.ShowMessageBox( "The scene file {0} is local. Are you sure you want to continue?".format(sceneFile), "Warning", ("Yes","No") )
+    elif (PathUtils.IsPathLocal(execFile)):
+        result = scriptDialog.ShowMessageBox( "The executable file {0} is local. Are you sure you want to continue?".format(execFile), "Warning", ("Yes","No") )
         if(result=="No"):
             return
     
@@ -198,7 +204,7 @@ def SubmitButtonPressed(*args):
     writer.WriteLine( "LimitGroups=%s" % scriptDialog.GetValue( "LimitGroupBox" ) )
     writer.WriteLine( "JobDependencies=%s" % scriptDialog.GetValue( "DependencyBox" ) )
     writer.WriteLine( "OnJobComplete=%s" % scriptDialog.GetValue( "OnJobCompleteBox" ) )
-    writer.WriteLine( "Frames=0" )
+    writer.WriteLine( "Frames=%s" % scriptDialog.GetValue( "FramesBox" ) )
     writer.WriteLine( "ChunkSize=1" )
     
     if( bool(scriptDialog.GetValue( "IsBlacklistBox" )) ):
@@ -213,13 +219,18 @@ def SubmitButtonPressed(*args):
     # Create plugin info file. Empty for now.
     pluginInfoFilename = Path.Combine( GetDeadlineTempPath(), "photoshopdroplet_plugin_info.job" )
     writer = StreamWriter( pluginInfoFilename, False, Encoding.Unicode )
+  
+    writer.WriteLine( "Arguments=%s" % scriptDialog.GetValue( "ArgsBox" ) )
+    writer.WriteLine( "Executable=%s" % scriptDialog.GetValue( "ExecBox" ) )
+    writer.WriteLine( "StartupDirectory=%s" % scriptDialog.GetValue( "StartupBox" ) )
+
     writer.Close()
     
     # Setup the command line arguments.
     arguments = StringCollection()
     arguments.Add( jobInfoFilename )
     arguments.Add( pluginInfoFilename )
-    arguments.Add( sceneFile )
+    arguments.Add( execFile )
     
     # Now submit the job.
     results = ClientUtils.ExecuteCommandAndGetOutput( arguments )
