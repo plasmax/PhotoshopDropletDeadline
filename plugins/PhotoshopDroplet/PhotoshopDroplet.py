@@ -1,4 +1,5 @@
 import os
+import struct
 
 from System import *
 from System.Collections.Specialized import *
@@ -84,28 +85,34 @@ class PhotoshopDropletPlugin( DeadlinePlugin ):
         self.LogInfo(renderFramePath)
         
         if os.path.isfile(renderFramePath):
-            self.returnError(False, "Starting the process %s" % self.processName)
-                        
-            # Starting the process
-            self.StartMonitoredManagedProcess( self.processName, self.Pdp )
-            while( self.MonitoredManagedProcessIsRunning( self.processName ) ):
-                self.isBlockingPopup()
-            
-            if self.isReadyToExit(self.GetMonitoredManagedProcessExitCode(self.processName)):
-                self.LogStdout("Checking the render file size with the original file...")
-                if self.isCheckFileSize:
-                    renderFileInfo = os.stat(renderFramePath)
-                    self.Pdp.renderFileSize = renderFileInfo.st_size
-            
-                    self.checkFileSize( self.Pdp.origineFileSize, self.Pdp.renderFileSize )
+            if self.getImageWidth( renderFramePath ) < 2000:
+                self.returnError(False, "Starting the process %s" % self.processName)
+                            
+                # Starting the process
+                self.StartMonitoredManagedProcess( self.processName, self.Pdp )
+                while( self.MonitoredManagedProcessIsRunning( self.processName ) ):
+                    self.isBlockingPopup()
+                    if self.IsCanceled():
+                        self.timeout()
+                
+                if self.isReadyToExit(self.GetMonitoredManagedProcessExitCode(self.processName)):
+                    self.LogStdout("Checking the render file size with the original file...")
+                    if self.isCheckFileSize:
+                        renderFileInfo = os.stat(renderFramePath)
+                        self.Pdp.renderFileSize = renderFileInfo.st_size
+                
+                        self.checkFileSize( self.Pdp.origineFileSize, self.Pdp.renderFileSize )
 
-                if self.CloseOnEndRender:
-                    if ProcessUtils.IsProcessRunning( "Photoshop.exe" ):
-                        self.ShutdownMonitoredManagedProcess( self.processName )
-                        # os.system("taskkill /t /im \"Photoshop*\" /f")
-                    else:
-                        self.returnError(False, "RenderTasks Photoshop droplet exited before finishing, \
-                        it may have been terminated by your Droplet script")
+                    if self.CloseOnEndRender:
+                        if ProcessUtils.IsProcessRunning( "Photoshop.exe" ):
+                            self.ShutdownMonitoredManagedProcess( self.processName )
+                            # os.system("taskkill /t /im \"Photoshop*\" /f")
+                        else:
+                            self.returnError(False, "RenderTasks Photoshop droplet exited before finishing, \
+                            it may have been terminated by your Droplet script")
+            else:
+                self.returnError(False, "The frame is larger than 2000px ! This is already a calculated cavity.")
+                self.ExitWithSuccess()
         else:
             self.returnError(True, "The frame %s doesn't exist. The render is aborted !" % renderFramePath)
         
@@ -136,6 +143,18 @@ class PhotoshopDropletPlugin( DeadlinePlugin ):
             self.returnError(False,"The render file size (%(renderSize)s) is different of original file size (%(originalSize)s)" 
             % {"renderSize": renderFileSize, "originalSize": origineFileSize}) 
             return True
+    
+    def getImageWidth( self, imageFile ):
+        with open(imageFile, 'rb') as f:
+            data = f.read()
+            w, h = struct.unpack('>LL', data[16:24])
+            return int(w)
+    
+    def timeout(self):
+        self.returnError(True, "Timeout ! Task failed. Killing process.")
+        if ProcessUtils.IsProcessRunning( "Photoshop.exe" ):
+            self.returnError(False, "Photoshop is running on the slave - killing the process to allow renders.")
+            os.system("taskkill /t /im \"Photoshop*\" /f")
         
 ######################################################################
 ## This is the ManagedProcess class that is launched above.
